@@ -4,7 +4,13 @@ import torch
 import torch.nn as nn
 
 
-class MLPGenerator(nn.Module):
+class Generator(nn.Module):
+    device: torch.device
+    dtype: torch.dtype
+    n_outputs: int
+
+
+class MLPGenerator(Generator):
     def __init__(
         self,
         *,
@@ -29,7 +35,7 @@ class MLPGenerator(nn.Module):
         for _ in range(depth):
             layers.append(nn.ReLU())
             layers.append(nn.Linear(d_hidden, d_hidden, device=device, dtype=dtype))
-        self.layers = nn.Sequential(layers)
+        self.layers = nn.Sequential(*layers)
 
         self.out_proj = nn.Sequential(nn.ReLU(), nn.Linear(d_hidden, n_outputs))
 

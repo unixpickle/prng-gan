@@ -35,6 +35,7 @@ class StridedInputSampler(InputSampler):
                 start = rng.randrange(0, maximum)
                 continue
             results.append(n)
+        return results
 
 
 class RandomInputSampler(InputSampler):
@@ -52,4 +53,4 @@ class MixtureSampler(InputSampler):
         self.probs = [x / sum(weights) for x in weights]
 
     def sample_inputs(self, rng: Random) -> List[int]:
-        return rng.choices(self.samplers, weights=self.probs)[0].sample_inputs()
+        return rng.choices(self.samplers, weights=self.probs)[0].sample_inputs(rng)

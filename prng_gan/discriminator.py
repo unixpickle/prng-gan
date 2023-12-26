@@ -4,7 +4,12 @@ import torch.nn as nn
 from .transformer import Transformer
 
 
-class TransformerDiscriminator(nn.Module):
+class Discriminator(nn.Module):
+    device: torch.device
+    dtype: torch.dtype
+
+
+class TransformerDiscriminator(Discriminator):
     """
     https://github.com/openai/shap-e/blob/main/shap_e/models/generation/transformer.py
     """
@@ -45,7 +50,7 @@ class TransformerDiscriminator(nn.Module):
         h = h + self.pos_emb
         h = self.backbone(h)
         h = self.norm(h)
-        h = self.out_proj(h)
+        h = self.out_proj(h.mean(1))
         return h.squeeze(-1)
 
 
