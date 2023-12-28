@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Optional
 
 import fire
 import torch
@@ -29,6 +30,7 @@ def train(
     disc_depth: int = 4,
     seq_len: int = 64,
     save_interval: int = 1000,
+    microbatch: Optional[int] = None,
 ):
     args = locals()
     os.makedirs(save_dir, exist_ok=True)
@@ -63,17 +65,22 @@ def train(
                 ),
                 (
                     1.0,
-                    StridedInputSampler(num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs),
+                    StridedInputSampler(
+                        num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs
+                    ),
                 ),
                 (
                     1.0,
-                    RandomInputSampler(num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs),
+                    RandomInputSampler(
+                        num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs
+                    ),
                 ),
             ]
         ),
         generator_lr=generator_lr,
         discriminator_lr=discriminator_lr,
         batch_size=batch_size,
+        microbatch=microbatch,
         save_interval=save_interval,
         save_dir=save_dir,
     )

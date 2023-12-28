@@ -1,7 +1,8 @@
 import glob
 import os
 import random
-from typing import Dict, List
+from collections import defaultdict
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -24,6 +25,7 @@ class TrainLoop:
         batch_size: int,
         save_interval: int,
         save_dir: str,
+        microbatch: Optional[int] = None,
     ):
         self.generator = generator
         self.discriminator = discriminator
@@ -36,6 +38,7 @@ class TrainLoop:
             betas=(0.0, 0.999),  # match BigGAN
         )
         self.batch_size = batch_size
+        self.microbatch = microbatch
         self.rng = random.Random(0)
         self.steps_completed = 0
         self.seqs_completed = 0
@@ -47,37 +50,51 @@ class TrainLoop:
             self.step()
 
     def step(self):
-        gen_input = [
+        for p in self.discriminator.parameters():
+            p.grad = torch.zeros_like(p)
+        for p in self.generator.parameters():
+            p.grad = torch.zeros_like(p)
+
+        all_gen_input = [
             self.sampler.sample_inputs(self.rng) for _ in range(self.batch_size)
         ]
-        disc_input = torch.rand(
-            len(gen_input),
-            len(gen_input[0]) * self.generator.n_outputs,
-            device=self.generator.device,
-            dtype=self.generator.dtype,
-        )
-        losses = self.compute_losses(gen_input, disc_input)
+        microbatch = self.microbatch or len(all_gen_input)
+        all_losses = defaultdict(float)
+        for i in range(0, self.batch_size, microbatch):
+            gen_input = all_gen_input[i : i + microbatch]
+            mb_weight = len(gen_input) / self.batch_size
+            disc_input = torch.rand(
+                len(gen_input),
+                len(gen_input[0]) * self.generator.n_outputs,
+                device=self.generator.device,
+                dtype=self.generator.dtype,
+            )
+            losses = self.compute_losses(gen_input, disc_input)
+            for k, v in losses.items():
+                all_losses[k] += v.item() * mb_weight
 
-        disc_grads = torch.autograd.grad(
-            losses["disc_loss"],
-            list(self.discriminator.parameters()),
-            retain_graph=True,
-        )
-        for p, g in zip(self.discriminator.parameters(), disc_grads):
-            p.grad = g
-        gen_grads = torch.autograd.grad(
-            losses["gen_loss"], list(self.generator.parameters())
-        )
-        for p, g in zip(self.generator.parameters(), gen_grads):
-            p.grad = g
+            disc_grads = torch.autograd.grad(
+                losses["disc_loss"],
+                list(self.discriminator.parameters()),
+                retain_graph=True,
+            )
+            for p, g in zip(self.discriminator.parameters(), disc_grads):
+                p.grad.add_(g * mb_weight)
+
+            gen_grads = torch.autograd.grad(
+                losses["gen_loss"], list(self.generator.parameters())
+            )
+            for p, g in zip(self.generator.parameters(), gen_grads):
+                p.grad.add_(g * mb_weight)
+
         self.opt.step()
 
-        outputs = [f"{k}={v:.05f}" for k, v in losses.items()]
+        outputs = [f"{k}={v:.05f}" for k, v in all_losses.items()]
         outputs.append(f"seqs={self.seqs_completed}")
         print(f"step {self.steps_completed}: {' '.join(outputs)}")
 
         self.steps_completed += 1
-        self.seqs_completed += len(gen_input)
+        self.seqs_completed += len(all_gen_input)
         if self.steps_completed % self.save_interval == 0:
             out_path = os.path.join(self.save_dir, f"{self.steps_completed:012}.pt")
             print(f"saving to {out_path} ...")
