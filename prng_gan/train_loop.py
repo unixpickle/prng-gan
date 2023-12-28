@@ -55,8 +55,14 @@ class TrainLoop:
         )
         losses = self.compute_losses(gen_input, disc_input)
 
-        self.opt.zero_grad()
-        losses["loss"].backward()
+        disc_grads = torch.autograd.grad(
+            losses["disc_loss"], list(self.discriminator.parameters()), retain_graph=True
+        )
+        for p, g in zip(self.discriminator.parameters(), disc_grads):
+            p.grad = g
+        gen_grads = torch.autograd.grad(losses["gen_loss"], list(self.generator.parameters()))
+        for p, g in zip(self.generator.parameters(), gen_grads):
+            p.grad = g
         self.opt.step()
 
         outputs = [f"{k}={v:.05f}" for k, v in losses.items()]
@@ -77,20 +83,24 @@ class TrainLoop:
         disc_out = self.discriminator(torch.cat([gen_out, disc_input], dim=0))
         disc_targets = torch.tensor(
             [False] * len(gen_input) + [True] * len(disc_input),
-            device=self.discriminator.device,
-            dtype=self.discriminator.dtype,
+            device=disc_out.device,
+            dtype=disc_out.dtype,
         )
         disc_loss = F.binary_cross_entropy_with_logits(
             input=disc_out,
             target=disc_targets,
         )
+        gen_loss = F.binary_cross_entropy_with_logits(
+            input=-disc_out[: len(gen_out)],
+            target=disc_targets[: len(gen_out)],
+        )
         gen_mean = gen_out.mean()
-        gen_std = gen_out.std()
+        gen_std = gen_out.std(-1).mean()
         return dict(
             gen_mean=gen_mean,
             gen_std=gen_std,
             disc_loss=disc_loss,
-            loss=disc_loss,
+            gen_loss=gen_loss,
         )
 
     def save(self, path: str):
