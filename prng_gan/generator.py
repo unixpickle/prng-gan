@@ -33,19 +33,29 @@ class MLPGenerator(Generator):
 
         layers = []
         for _ in range(depth):
-            layers.append(nn.ReLU())
+            layers.append(nn.SiLU())
             layers.append(nn.Linear(d_hidden, d_hidden, device=device, dtype=dtype))
         self.layers = nn.Sequential(*layers)
 
-        self.out_proj = nn.Sequential(nn.ReLU(), nn.Linear(d_hidden, n_outputs))
+        self.out_proj = nn.Sequential(
+            nn.SiLU(), nn.Linear(d_hidden, n_outputs, device=device, dtype=dtype)
+        )
 
     def forward(self, inputs: Union[List[int], torch.Tensor]) -> torch.Tensor:
-        inputs = maybe_tensorize_bits(self.input_bits, inputs, device=self.device, dtype=self.dtype)
-        return self.out_proj(self.layers(self.in_proj(inputs)))
+        h = maybe_tensorize_bits(
+            self.input_bits, inputs, device=self.device, dtype=self.dtype
+        )
+        h = self.in_proj(h)
+        h = self.layers(h)
+        h = self.out_proj(h)
+        return torch.sigmoid(h)
 
 
 def maybe_tensorize_bits(
-    n_bits: int, inputs: Union[List[int], torch.Tensor], device: torch.device, dtype: torch.dtype
+    n_bits: int,
+    inputs: Union[List[int], torch.Tensor],
+    device: torch.device,
+    dtype: torch.dtype,
 ) -> torch.Tensor:
     if isinstance(inputs, torch.Tensor):
         return inputs

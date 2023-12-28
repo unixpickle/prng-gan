@@ -46,8 +46,10 @@ class TrainLoop:
             self.step()
 
     def step(self):
-        gen_input = [self.sampler.sample_inputs(self.rng) for _ in range(self.batch_size)]
-        disc_input = torch.randn(
+        gen_input = [
+            self.sampler.sample_inputs(self.rng) for _ in range(self.batch_size)
+        ]
+        disc_input = torch.rand(
             len(gen_input),
             len(gen_input[0]) * self.generator.n_outputs,
             device=self.generator.device,
