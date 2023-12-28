@@ -26,6 +26,8 @@ class TrainLoop:
         save_interval: int,
         save_dir: str,
         microbatch: Optional[int] = None,
+        min_disc_loss: Optional[float] = None,
+        stats_loss_coeff: float = 0.0,
     ):
         self.generator = generator
         self.discriminator = discriminator
@@ -44,6 +46,8 @@ class TrainLoop:
         self.seqs_completed = 0
         self.save_interval = save_interval
         self.save_dir = save_dir
+        self.min_disc_loss = min_disc_loss
+        self.stats_loss_coeff = stats_loss_coeff
 
     def run(self):
         while True:
@@ -87,6 +91,10 @@ class TrainLoop:
             for p, g in zip(self.generator.parameters(), gen_grads):
                 p.grad.add_(g * mb_weight)
 
+        if self.min_disc_loss and all_losses["disc_loss"] < self.min_disc_loss:
+            for p in self.discriminator.parameters():
+                p.grad = None
+
         self.opt.step()
 
         outputs = [f"{k}={v:.05f}" for k, v in all_losses.items()]
@@ -120,13 +128,16 @@ class TrainLoop:
             input=-disc_out[: len(gen_out)],
             target=disc_targets[: len(gen_out)],
         )
-        gen_mean = gen_out.mean()
-        gen_std = gen_out.std(-1).mean()
+        gen_mean = gen_out.mean(-1)
+        gen_var = gen_out.var(-1)
+        stats_loss = (
+            (gen_mean - disc_input.mean()) ** 2 + (gen_var - disc_input.var()) ** 2
+        ).mean()
         return dict(
-            gen_mean=gen_mean,
-            gen_std=gen_std,
+            gen_mean=gen_mean.mean(),
+            gen_var=gen_var.mean(),
             disc_loss=disc_loss,
-            gen_loss=gen_loss,
+            gen_loss=gen_loss + stats_loss * self.stats_loss_coeff,
         )
 
     def save(self, path: str):

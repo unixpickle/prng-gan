@@ -31,6 +31,8 @@ def train(
     seq_len: int = 64,
     save_interval: int = 1000,
     microbatch: Optional[int] = None,
+    min_disc_loss: Optional[float] = None,
+    stats_loss_coeff: float = 0.0,
 ):
     args = locals()
     os.makedirs(save_dir, exist_ok=True)
@@ -83,6 +85,8 @@ def train(
         microbatch=microbatch,
         save_interval=save_interval,
         save_dir=save_dir,
+        min_disc_loss=min_disc_loss,
+        stats_loss_coeff=stats_loss_coeff,
     )
     loop.load_latest()
     loop.run()

@@ -34,6 +34,7 @@ class MLPGenerator(Generator):
         layers = []
         for _ in range(depth):
             layers.append(nn.SiLU())
+            layers.append(nn.LayerNorm((d_hidden,), device=device, dtype=dtype))
             layers.append(nn.Linear(d_hidden, d_hidden, device=device, dtype=dtype))
         self.layers = nn.Sequential(*layers)
 
