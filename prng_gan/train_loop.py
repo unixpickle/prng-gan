@@ -32,7 +32,8 @@ class TrainLoop:
             [
                 dict(params=generator.parameters(), lr=generator_lr),
                 dict(params=discriminator.parameters(), lr=discriminator_lr),
-            ]
+            ],
+            betas=(0.0, 0.999),  # match BigGAN
         )
         self.batch_size = batch_size
         self.rng = random.Random(0)
@@ -58,11 +59,15 @@ class TrainLoop:
         losses = self.compute_losses(gen_input, disc_input)
 
         disc_grads = torch.autograd.grad(
-            losses["disc_loss"], list(self.discriminator.parameters()), retain_graph=True
+            losses["disc_loss"],
+            list(self.discriminator.parameters()),
+            retain_graph=True,
         )
         for p, g in zip(self.discriminator.parameters(), disc_grads):
             p.grad = g
-        gen_grads = torch.autograd.grad(losses["gen_loss"], list(self.generator.parameters()))
+        gen_grads = torch.autograd.grad(
+            losses["gen_loss"], list(self.generator.parameters())
+        )
         for p, g in zip(self.generator.parameters(), gen_grads):
             p.grad = g
         self.opt.step()
@@ -81,7 +86,9 @@ class TrainLoop:
     def compute_losses(
         self, gen_input: List[List[int]], disc_input: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        gen_out = self.generator([x for y in gen_input for x in y]).reshape([len(gen_input), -1])
+        gen_out = self.generator([x for y in gen_input for x in y]).reshape(
+            [len(gen_input), -1]
+        )
         disc_out = self.discriminator(torch.cat([gen_out, disc_input], dim=0))
         disc_targets = torch.tensor(
             [False] * len(gen_input) + [True] * len(disc_input),
