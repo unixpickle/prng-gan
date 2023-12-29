@@ -7,6 +7,7 @@ import torch.nn as nn
 class Generator(nn.Module):
     device: torch.device
     dtype: torch.dtype
+    input_bits: int
     n_outputs: int
 
 

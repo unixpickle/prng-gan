@@ -6,6 +6,7 @@ import fire
 import torch
 
 from prng_gan.discriminator import TransformerDiscriminator
+from prng_gan.eval import GzipEval
 from prng_gan.generator import MLPGenerator
 from prng_gan.input_sampler import (
     MixtureSampler,
@@ -78,6 +79,14 @@ def train(
                     ),
                 ),
             ]
+        ),
+        evals=dict(
+            gzip_u8_64=GzipEval(seq_len=64),
+            gzip_u8_128=GzipEval(seq_len=128),
+            gzip_u8_512=GzipEval(seq_len=512),
+            gzip_u8_1024=GzipEval(seq_len=1024),
+            gzip_u8_4096=GzipEval(seq_len=4096),
+            gzip_binary_4096=GzipEval(seq_len=4096, num_bins=2),
         ),
         generator_lr=generator_lr,
         discriminator_lr=discriminator_lr,

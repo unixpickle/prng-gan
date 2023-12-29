@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 
 from .discriminator import Discriminator
+from .eval import Eval
 from .generator import Generator
 from .input_sampler import InputSampler
 
@@ -20,6 +21,7 @@ class TrainLoop:
         discriminator: Discriminator,
         sampler: InputSampler,
         *,
+        evals: Optional[Dict[str, Eval]] = None,
         generator_lr: float,
         discriminator_lr: float,
         batch_size: int,
@@ -32,6 +34,7 @@ class TrainLoop:
         self.generator = generator
         self.discriminator = discriminator
         self.sampler = sampler
+        self.evals = evals or {}
         self.opt = AdamW(
             [
                 dict(params=generator.parameters(), lr=generator_lr),
@@ -94,6 +97,9 @@ class TrainLoop:
         if self.min_disc_loss and all_losses["disc_loss"] < self.min_disc_loss:
             for p in self.discriminator.parameters():
                 p.grad = None
+
+        for k, eval in self.evals.items():
+            all_losses[k] = eval.eval(self.generator)
 
         self.opt.step()
 
