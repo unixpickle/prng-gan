@@ -9,6 +9,8 @@ from prng_gan.discriminator import TransformerDiscriminator
 from prng_gan.eval import GzipEval
 from prng_gan.generator import MLPGenerator
 from prng_gan.input_sampler import (
+    BlockSequentialInputSampler,
+    FlipRandomWalkInputSampler,
     MixtureSampler,
     RandomInputSampler,
     SequentialInputSampler,
@@ -42,6 +44,7 @@ def train(
     print(f"Args: {args}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float32
+    sampler_kwargs = dict(num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs)
     loop = TrainLoop(
         generator=MLPGenerator(
             input_bits=gen_input_bits,
@@ -60,24 +63,18 @@ def train(
         ),
         sampler=MixtureSampler(
             [
+                (1.0, SequentialInputSampler(**sampler_kwargs)),
                 (
                     1.0,
-                    SequentialInputSampler(
-                        num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs
+                    BlockSequentialInputSampler(
+                        num_blocks=2,
+                        max_skip=seq_len * 8,
+                        **sampler_kwargs,
                     ),
                 ),
-                (
-                    1.0,
-                    StridedInputSampler(
-                        num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs
-                    ),
-                ),
-                (
-                    1.0,
-                    RandomInputSampler(
-                        num_bits=gen_input_bits, seq_len=seq_len // gen_n_outputs
-                    ),
-                ),
+                (1.0, FlipRandomWalkInputSampler(**sampler_kwargs)),
+                (1.0, StridedInputSampler(**sampler_kwargs)),
+                (1.0, RandomInputSampler(**sampler_kwargs)),
             ]
         ),
         evals=dict(
