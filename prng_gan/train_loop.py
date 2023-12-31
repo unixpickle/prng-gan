@@ -1,11 +1,14 @@
 import glob
 import os
+import pickle
 import random
+import traceback
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import torch
 import torch.nn.functional as F
+from torch.multiprocessing import Process, Queue
 from torch.optim import AdamW
 
 from .discriminator import Discriminator
@@ -53,18 +56,17 @@ class TrainLoop:
         self.stats_loss_coeff = stats_loss_coeff
 
     def run(self):
+        input_it = self.iterate_input_batches()
         while True:
-            self.step()
+            self.step(input_it)
 
-    def step(self):
+    def step(self, input_it: Iterator[List[List[int]]]):
         for p in self.discriminator.parameters():
             p.grad = torch.zeros_like(p)
         for p in self.generator.parameters():
             p.grad = torch.zeros_like(p)
 
-        all_gen_input = [
-            self.sampler.sample_inputs(self.rng) for _ in range(self.batch_size)
-        ]
+        all_gen_input = next(input_it)
         microbatch = self.microbatch or len(all_gen_input)
         all_losses = defaultdict(float)
         for i in range(0, self.batch_size, microbatch):
@@ -176,3 +178,40 @@ class TrainLoop:
         if len(paths):
             print(f"loading state from {paths[-1]} ...")
             self.load(paths[-1])
+
+    def iterate_input_batches(self) -> Iterator[List[List[int]]]:
+        queue = Queue(maxsize=32)
+        proc = Process(
+            target=dataset_worker,
+            name="dataset-worker",
+            args=(queue, self.sampler, self.batch_size, self.rng),
+        )
+        proc.start()
+        try:
+            while True:
+                batch = queue.get()
+                if "error" in batch:
+                    raise RuntimeError(f"error from input sampler: {batch['error']}")
+                self.rng = pickle.loads(batch["rng"])
+                yield batch["batch"]
+        finally:
+            proc.kill()
+            proc.join()
+            del queue
+
+
+def dataset_worker(
+    queue: Queue, sampler: InputSampler, batch_size: int, rng: random.Random
+):
+    while True:
+        try:
+            batch = [sampler.sample_inputs(rng) for _ in range(batch_size)]
+            queue.put(
+                dict(
+                    batch=batch,
+                    rng=pickle.dumps(rng),
+                )
+            )
+        except Exception as exc:
+            traceback.print_exc()
+            queue.put(dict(error=str(exc)))
