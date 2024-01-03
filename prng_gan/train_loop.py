@@ -33,6 +33,7 @@ class TrainLoop:
         microbatch: Optional[int] = None,
         min_disc_loss: Optional[float] = None,
         stats_loss_coeff: float = 0.0,
+        disc_steps: Optional[int] = None,
     ):
         self.generator = generator
         self.discriminator = discriminator
@@ -54,6 +55,7 @@ class TrainLoop:
         self.save_dir = save_dir
         self.min_disc_loss = min_disc_loss
         self.stats_loss_coeff = stats_loss_coeff
+        self.disc_steps = disc_steps
 
     def run(self):
         input_it = self.iterate_input_batches()
@@ -61,10 +63,37 @@ class TrainLoop:
             self.step(input_it)
 
     def step(self, input_it: Iterator[List[List[int]]]):
+        if self.disc_steps is None:
+            all_losses = self.step_models(input_it, gen=True, disc=True)
+        else:
+            for _ in range(self.disc_steps):
+                self.step_models(input_it, gen=False, disc=True)
+            all_losses = self.step_models(input_it, gen=True, disc=False)
+
+        outputs = [f"{k}={v:.05f}" for k, v in all_losses.items()]
+        outputs.append(f"seqs={self.seqs_completed}")
+        print(f"step {self.steps_completed}: {' '.join(outputs)}")
+
+        self.steps_completed += 1
+        self.seqs_completed += self.batch_size
+        if self.steps_completed % self.save_interval == 0:
+            out_path = os.path.join(self.save_dir, f"{self.steps_completed:012}.pt")
+            print(f"saving to {out_path} ...")
+            self.save(out_path)
+
+    def step_models(
+        self, input_it: Iterator[List[List[int]]], gen: bool, disc: bool
+    ) -> Dict[str, float]:
         for p in self.discriminator.parameters():
-            p.grad = torch.zeros_like(p)
+            if disc:
+                p.grad = torch.zeros_like(p)
+            else:
+                p.grad = None
         for p in self.generator.parameters():
-            p.grad = torch.zeros_like(p)
+            if gen:
+                p.grad = torch.zeros_like(p)
+            else:
+                p.grad = None
 
         all_gen_input = next(input_it)
         microbatch = self.microbatch or len(all_gen_input)
@@ -82,39 +111,33 @@ class TrainLoop:
             for k, v in losses.items():
                 all_losses[k] += v.item() * mb_weight
 
-            disc_grads = torch.autograd.grad(
-                losses["disc_loss"],
-                list(self.discriminator.parameters()),
-                retain_graph=True,
-            )
-            for p, g in zip(self.discriminator.parameters(), disc_grads):
-                p.grad.add_(g * mb_weight)
+            if disc:
+                disc_grads = torch.autograd.grad(
+                    losses["disc_loss"],
+                    list(self.discriminator.parameters()),
+                    retain_graph=True,
+                )
+                for p, g in zip(self.discriminator.parameters(), disc_grads):
+                    p.grad.add_(g * mb_weight)
 
-            gen_grads = torch.autograd.grad(
-                losses["gen_loss"], list(self.generator.parameters())
-            )
-            for p, g in zip(self.generator.parameters(), gen_grads):
-                p.grad.add_(g * mb_weight)
+            if gen:
+                gen_grads = torch.autograd.grad(
+                    losses["gen_loss"], list(self.generator.parameters())
+                )
+                for p, g in zip(self.generator.parameters(), gen_grads):
+                    p.grad.add_(g * mb_weight)
 
         if self.min_disc_loss and all_losses["disc_loss"] < self.min_disc_loss:
             for p in self.discriminator.parameters():
                 p.grad = None
 
-        for k, eval in self.evals.items():
-            all_losses[k] = eval.eval(self.generator)
+        if gen:
+            for k, eval in self.evals.items():
+                all_losses[k] = eval.eval(self.generator)
 
         self.opt.step()
 
-        outputs = [f"{k}={v:.05f}" for k, v in all_losses.items()]
-        outputs.append(f"seqs={self.seqs_completed}")
-        print(f"step {self.steps_completed}: {' '.join(outputs)}")
-
-        self.steps_completed += 1
-        self.seqs_completed += len(all_gen_input)
-        if self.steps_completed % self.save_interval == 0:
-            out_path = os.path.join(self.save_dir, f"{self.steps_completed:012}.pt")
-            print(f"saving to {out_path} ...")
-            self.save(out_path)
+        return all_losses
 
     def compute_losses(
         self, gen_input: List[List[int]], disc_input: torch.Tensor
