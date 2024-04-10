@@ -15,6 +15,7 @@ from .discriminator import Discriminator
 from .eval import Eval
 from .generator import Generator
 from .input_sampler import InputSampler
+from .random import StepRNG
 
 
 class TrainLoop:
@@ -63,12 +64,13 @@ class TrainLoop:
             self.step(input_it)
 
     def step(self, input_it: Iterator[List[List[int]]]):
+        rng = StepRNG(self.steps_completed, self.generator.device)
         if self.disc_steps is None:
-            all_losses = self.step_models(input_it, gen=True, disc=True)
+            all_losses = self.step_models(input_it, rng, gen=True, disc=True)
         else:
             for _ in range(self.disc_steps):
-                self.step_models(input_it, gen=False, disc=True)
-            all_losses = self.step_models(input_it, gen=True, disc=False)
+                self.step_models(input_it, rng, gen=False, disc=True)
+            all_losses = self.step_models(input_it, rng, gen=True, disc=False)
 
         outputs = [f"{k}={v:.05f}" for k, v in all_losses.items()]
         outputs.append(f"seqs={self.seqs_completed}")
@@ -82,7 +84,11 @@ class TrainLoop:
             self.save(out_path)
 
     def step_models(
-        self, input_it: Iterator[List[List[int]]], gen: bool, disc: bool
+        self,
+        input_it: Iterator[List[List[int]]],
+        rng: StepRNG,
+        gen: bool,
+        disc: bool,
     ) -> Dict[str, float]:
         for p in self.discriminator.parameters():
             if disc:
@@ -101,11 +107,9 @@ class TrainLoop:
         for i in range(0, self.batch_size, microbatch):
             gen_input = all_gen_input[i : i + microbatch]
             mb_weight = len(gen_input) / self.batch_size
-            disc_input = torch.rand(
+            disc_input = rng.rand(
                 len(gen_input),
                 len(gen_input[0]) * self.generator.n_outputs,
-                device=self.generator.device,
-                dtype=self.generator.dtype,
             )
             losses = self.compute_losses(gen_input, disc_input)
             for k, v in losses.items():
